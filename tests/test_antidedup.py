@@ -96,6 +96,7 @@ def test_pipeline_records_antidedup_notes(tmp_path: Path) -> None:
             color_jitter_strength=0.03,
         ),
         random_seed=42,
+        max_workers=1,
     )
 
     result = process_batch(job)

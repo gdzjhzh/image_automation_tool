@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass
 from itertools import count
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Set
 
 from PIL import Image
 
@@ -44,8 +44,13 @@ class OutputManager:
         self.output_dir = config.output_dir.resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def decide_destination(self, source: SourceImage) -> DestinationDecision:
-        """根据冲突策略确定输出路径。"""
+    def decide_destination(self, source: SourceImage, reserved_paths: Optional[Set[Path]] = None) -> DestinationDecision:
+        """根据冲突策略确定输出路径。
+
+        `reserved_paths` 用于并发场景下预留尚未写入的目标文件，避免重名。
+        """
+
+        reserved_paths = reserved_paths or set()
 
         if self.config.flatten_structure:
             relative = Path(source.source_path.name)
@@ -55,18 +60,21 @@ class OutputManager:
         destination = self.output_dir / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
 
-        if not destination.exists():
+        if destination not in reserved_paths and not destination.exists():
+            reserved_paths.add(destination)
             return DestinationDecision(destination=destination, action="write")
 
         strategy = self.config.conflict_strategy
         existing_msg = f"目标已存在: {destination.name}"
 
         if strategy == "overwrite":
+            reserved_paths.add(destination)
             return DestinationDecision(destination=destination, action="overwrite", note=existing_msg)
         if strategy == "skip":
             return DestinationDecision(destination=destination, action="skip", note=existing_msg)
         if strategy == "rename":
-            new_destination = self._generate_renamed_path(destination)
+            new_destination = self._generate_renamed_path(destination, reserved_paths)
+            reserved_paths.add(new_destination)
             return DestinationDecision(
                 destination=new_destination,
                 action="rename",
@@ -78,27 +86,9 @@ class OutputManager:
     def save_image(self, image: Image.Image, destination: Path) -> None:
         """将 PIL Image 保存到磁盘。"""
 
-        suffix = destination.suffix.lower()
-        image_format = SUPPORTED_FORMATS.get(suffix)
-        if not image_format:
-            raise ImageWriteError(f"不支持的输出格式: {suffix}")
+        save_image_file(image, destination)
 
-        save_params = {"optimize": True}
-        image_to_save = image
-        if image_format == "JPEG":
-            save_params.update(quality=95, subsampling=1)
-            if image.mode != "RGB":
-                image_to_save = image.convert("RGB")
-        else:
-            if image.mode not in {"RGB", "RGBA"}:
-                image_to_save = image.convert("RGB")
-
-        try:
-            image_to_save.save(destination, format=image_format, **save_params)
-        except OSError as exc:
-            raise ImageWriteError(f"写入文件失败: {destination}") from exc
-
-    def _generate_renamed_path(self, destination: Path) -> Path:
+    def _generate_renamed_path(self, destination: Path, reserved_paths: Set[Path]) -> Path:
         """在 rename 策略下生成新的文件名。"""
 
         stem = destination.stem
@@ -106,8 +96,33 @@ class OutputManager:
 
         for idx in count(1):
             candidate = destination.with_name(f"{stem}_{idx}{suffix}")
-            if not candidate.exists():
+            if candidate not in reserved_paths and not candidate.exists():
                 return candidate
 
         # 理论上不会执行到此处
         return destination
+
+
+def save_image_file(image: Image.Image, destination: Path) -> None:
+    """保存图像到指定路径，在 OutputManager 与并发任务中复用。"""
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    suffix = destination.suffix.lower()
+    image_format = SUPPORTED_FORMATS.get(suffix)
+    if not image_format:
+        raise ImageWriteError(f"不支持的输出格式: {suffix}")
+
+    save_params = {"optimize": True}
+    image_to_save = image
+    if image_format == "JPEG":
+        save_params.update(quality=95, subsampling=1)
+        if image.mode != "RGB":
+            image_to_save = image.convert("RGB")
+    else:
+        if image.mode not in {"RGB", "RGBA"}:
+            image_to_save = image.convert("RGB")
+
+    try:
+        image_to_save.save(destination, format=image_format, **save_params)
+    except OSError as exc:
+        raise ImageWriteError(f"写入文件失败: {destination}") from exc

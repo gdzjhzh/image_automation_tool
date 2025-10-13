@@ -28,6 +28,7 @@ def make_config(
         output=OutputConfig(output_dir=output, conflict_strategy=conflict_strategy),
         styling=styling or StylingConfig(),
         anti_dedup=AntiDedupConfig(),
+        max_workers=1,
     )
 
 
