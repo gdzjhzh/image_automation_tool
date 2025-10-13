@@ -129,9 +129,10 @@ def test_contain_mode_with_background_and_border(tmp_path: Path) -> None:
         assert processed.size == (120, 120)
         # 角落为黑色边框。
         assert processed.getpixel((0, 0)) == (0, 0, 0)
-        # 中心区域应为红色背景。
-        mid = processed.width // 2
-        assert processed.getpixel((mid, mid)) == (255, 255, 255)
+        # 背景区域位于边框内侧、图片外侧。
+        bg_x = styling.border_thickness + 5
+        bg_y = processed.height // 2
+        assert processed.getpixel((bg_x, bg_y)) == (255, 0, 0)
 
 
 def test_cover_mode_produces_expected_size(tmp_path: Path) -> None:
