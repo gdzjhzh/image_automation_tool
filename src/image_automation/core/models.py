@@ -22,6 +22,7 @@ class FileOutcome:
 
     source_path: Path
     status: str
+    output_path: Optional[Path] = None
     message: Optional[str] = None
 
 
@@ -39,6 +40,11 @@ class ProcessedAsset:
 class BatchResult:
     """批处理阶段性的产出。"""
 
-    processed: list[ProcessedAsset]
+    succeeded: list[FileOutcome]
     skipped: list[FileOutcome]
     failed: list[FileOutcome]
+
+    def all_outcomes(self) -> list[FileOutcome]:
+        """返回所有结果记录，方便生成报告。"""
+
+        return [*self.succeeded, *self.skipped, *self.failed]
