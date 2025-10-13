@@ -1,0 +1,42 @@
+[project]
+name = "image-automation-tool"
+version = "0.1.0"
+description = "批量图片风格化与防重复检测的命令行与 GUI 工具"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "Internal Team" }
+]
+dependencies = [
+  "pillow>=10.0.0",
+  "numpy>=1.25.0",
+  "opencv-python>=4.8.0",
+  "typer[all]>=0.9.0",
+  "rich>=13.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.0.0",
+  "pytest-cov>=4.0.0",
+  "mypy>=1.5.0",
+  "ruff>=0.3.0"
+]
+
+[project.urls]
+homepage = "https://example.com"
+
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+addopts = "--maxfail=1 --disable-warnings"
+testpaths = ["tests"]
