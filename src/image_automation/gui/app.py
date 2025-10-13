@@ -367,3 +367,6 @@ def run_gui() -> None:
 
     app = ImageAutomationApp()
     app.mainloop()
+
+if __name__ == "__main__":
+    run_gui()
