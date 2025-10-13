@@ -6,7 +6,7 @@ import queue
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, ttk, font as tkfont
 from typing import List, Optional
 
 from image_automation.core.config import (
@@ -29,7 +29,7 @@ class ImageAutomationApp(tk.Tk):
         super().__init__()
         self.title("Image Automation Tool")
         self.geometry("900x600")
-
+        self._configure_fonts()
         setup_logging()
 
         self.sources: List[Path] = []
@@ -40,6 +40,30 @@ class ImageAutomationApp(tk.Tk):
 
         self._build_ui()
         self.after(200, self._poll_queue)
+
+    def _configure_fonts(self) -> None:
+        """设置全局字体以支持中文。"""
+        # 定义我们刚刚在WSL中安装的字体名称
+        font_family = "WenQuanYi Micro Hei"
+        font_size = 10
+
+        # 获取样式对象
+        style = ttk.Style(self)
+
+        # 为常见的控件类型配置默认字体
+        # 您可以根据需要添加更多控件，如 "TNotebook.Tab" 等
+        style.configure("TButton", font=(font_family, font_size))
+        style.configure("TLabel", font=(font_family, font_size))
+        style.configure("TEntry", font=(font_family, font_size))
+        style.configure("TLabelFrame", font=(font_family, font_size))
+        style.configure("TLabelFrame.Label", font=(font_family, font_size, "bold")) # 标题加粗
+        style.configure("TCombobox", font=(font_family, font_size))
+        style.configure("TCheckbutton", font=(font_family, font_size))
+
+        # 对于非ttk的经典控件，可能需要单独设置
+        # 比如您的 tk.Listbox 和 tk.Text
+        # 可以在创建它们时直接指定字体
+        self.option_add("*Font", (font_family, font_size))
 
     # ---------------------- UI 构建 ---------------------- #
 
