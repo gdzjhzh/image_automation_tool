@@ -172,9 +172,10 @@ class ImageAutomationApp(tk.Tk):
         ttk.Entry(frame, textvariable=self.border_thickness_var, width=6).grid(row=1, column=5, sticky=tk.W)
 
         ttk.Label(frame, text="边框模板:").grid(row=1, column=6, sticky=tk.W)
-        self.border_image_var = tk.StringVar(value=str(self.default_dir))
+        self.border_image_var = tk.StringVar()
         ttk.Entry(frame, textvariable=self.border_image_var, width=18).grid(row=1, column=7, sticky=tk.W)
         ttk.Button(frame, text="选择", command=self._select_border_image).grid(row=1, column=8, padx=4)
+        ttk.Button(frame, text="清除", command=self._clear_border_image).grid(row=1, column=9, padx=4)
 
         # Anti dedup
         ttk.Label(frame, text="防检测模式:").grid(row=2, column=0, sticky=tk.W, pady=4)
@@ -301,6 +302,9 @@ class ImageAutomationApp(tk.Tk):
         parent = resolved.parent
         if parent.exists():
             self.default_dir = parent
+
+    def _clear_border_image(self) -> None:
+        self.border_image_var.set("")
 
     def _start_processing(self) -> None:
         if self._worker_thread and self._worker_thread.is_alive():
