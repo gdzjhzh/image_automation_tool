@@ -182,7 +182,7 @@ class ImageAutomationApp(tk.Tk):
 
         # Anti dedup
         ttk.Label(frame, text="防检测模式:").grid(row=2, column=0, sticky=tk.W, pady=4)
-        self.antidedup_mode_var = tk.StringVar(value="none")
+        self.antidedup_mode_var = tk.StringVar(value="heavy")
         ttk.Combobox(
             frame, textvariable=self.antidedup_mode_var, values=("none", "light", "medium", "heavy"), width=10
         ).grid(row=2, column=1, sticky=tk.W)
