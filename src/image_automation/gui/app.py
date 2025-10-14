@@ -188,21 +188,21 @@ class ImageAutomationApp(tk.Tk):
         ttk.Checkbutton(frame, text="允许随机镜像", variable=self.allow_mirror_var).grid(row=2, column=2, sticky=tk.W)
 
         ttk.Label(frame, text="噪点强度:").grid(row=2, column=3, sticky=tk.W)
-        self.noise_var = tk.DoubleVar(value=0.015)
+        self.noise_var = tk.DoubleVar(value=0.025)
         ttk.Entry(frame, textvariable=self.noise_var, width=6).grid(row=2, column=4, sticky=tk.W)
 
         ttk.Label(frame, text="颜色扰动:").grid(row=2, column=5, sticky=tk.W)
-        self.color_var = tk.DoubleVar(value=0.02)
+        self.color_var = tk.DoubleVar(value=0.04)
         ttk.Entry(frame, textvariable=self.color_var, width=6).grid(row=2, column=6, sticky=tk.W)
 
         ttk.Label(frame, text="旋转范围:").grid(row=3, column=0, sticky=tk.W)
-        self.rot_min_var = tk.DoubleVar(value=-0.5)
-        self.rot_max_var = tk.DoubleVar(value=0.5)
+        self.rot_min_var = tk.DoubleVar(value=-2)
+        self.rot_max_var = tk.DoubleVar(value=2)
         ttk.Entry(frame, textvariable=self.rot_min_var, width=6).grid(row=3, column=1, sticky=tk.W)
         ttk.Entry(frame, textvariable=self.rot_max_var, width=6).grid(row=3, column=2, sticky=tk.W)
 
         ttk.Label(frame, text="裁剪余量:").grid(row=3, column=3, sticky=tk.W)
-        self.crop_var = tk.DoubleVar(value=0.01)
+        self.crop_var = tk.DoubleVar(value=0.05)
         ttk.Entry(frame, textvariable=self.crop_var, width=6).grid(row=3, column=4, sticky=tk.W)
 
         ttk.Label(frame, text="水印文本:").grid(row=3, column=5, sticky=tk.W)
@@ -210,19 +210,19 @@ class ImageAutomationApp(tk.Tk):
         ttk.Entry(frame, textvariable=self.watermark_text_var, width=15).grid(row=3, column=6, sticky=tk.W)
 
         ttk.Label(frame, text="水印数量:").grid(row=4, column=0, sticky=tk.W)
-        self.watermark_min_var = tk.IntVar(value=3)
-        self.watermark_max_var = tk.IntVar(value=5)
+        self.watermark_min_var = tk.IntVar(value=15)
+        self.watermark_max_var = tk.IntVar(value=25)
         ttk.Entry(frame, textvariable=self.watermark_min_var, width=6).grid(row=4, column=1, sticky=tk.W)
         ttk.Entry(frame, textvariable=self.watermark_max_var, width=6).grid(row=4, column=2, sticky=tk.W)
 
         ttk.Label(frame, text="水印透明度:").grid(row=4, column=3, sticky=tk.W)
         self.watermark_opacity_min_var = tk.DoubleVar(value=0.05)
-        self.watermark_opacity_max_var = tk.DoubleVar(value=0.15)
+        self.watermark_opacity_max_var = tk.DoubleVar(value=0.10)
         ttk.Entry(frame, textvariable=self.watermark_opacity_min_var, width=6).grid(row=4, column=4, sticky=tk.W)
         ttk.Entry(frame, textvariable=self.watermark_opacity_max_var, width=6).grid(row=4, column=5, sticky=tk.W)
 
         ttk.Label(frame, text="进程数:").grid(row=4, column=6, sticky=tk.W)
-        self.worker_var = tk.IntVar(value=4)
+        self.worker_var = tk.IntVar(value=8)
         ttk.Entry(frame, textvariable=self.worker_var, width=6).grid(row=4, column=7, sticky=tk.W)
 
         ttk.Label(frame, text="随机种子:").grid(row=4, column=8, sticky=tk.W, padx=(8, 0))
