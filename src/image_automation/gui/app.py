@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import queue
+import random
+import string
 import threading
 import tkinter as tk
-import os
 from pathlib import Path, PureWindowsPath
 from tkinter import filedialog, messagebox, ttk, font as tkfont
 from typing import List, Optional
@@ -192,12 +194,12 @@ class ImageAutomationApp(tk.Tk):
         ttk.Entry(frame, textvariable=self.noise_var, width=6).grid(row=2, column=4, sticky=tk.W)
 
         ttk.Label(frame, text="颜色扰动:").grid(row=2, column=5, sticky=tk.W)
-        self.color_var = tk.DoubleVar(value=0.04)
+        self.color_var = tk.DoubleVar(value=0.08)
         ttk.Entry(frame, textvariable=self.color_var, width=6).grid(row=2, column=6, sticky=tk.W)
 
         ttk.Label(frame, text="旋转范围:").grid(row=3, column=0, sticky=tk.W)
-        self.rot_min_var = tk.DoubleVar(value=-2)
-        self.rot_max_var = tk.DoubleVar(value=2)
+        self.rot_min_var = tk.DoubleVar(value=-0.5)
+        self.rot_max_var = tk.DoubleVar(value=0.5)
         ttk.Entry(frame, textvariable=self.rot_min_var, width=6).grid(row=3, column=1, sticky=tk.W)
         ttk.Entry(frame, textvariable=self.rot_max_var, width=6).grid(row=3, column=2, sticky=tk.W)
 
@@ -208,6 +210,10 @@ class ImageAutomationApp(tk.Tk):
         ttk.Label(frame, text="水印文本:").grid(row=3, column=5, sticky=tk.W)
         self.watermark_text_var = tk.StringVar()
         ttk.Entry(frame, textvariable=self.watermark_text_var, width=15).grid(row=3, column=6, sticky=tk.W)
+        self.random_watermark_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(frame, text="自动随机", variable=self.random_watermark_var).grid(
+            row=3, column=7, sticky=tk.W, padx=(4, 0)
+        )
 
         ttk.Label(frame, text="水印数量:").grid(row=4, column=0, sticky=tk.W)
         self.watermark_min_var = tk.IntVar(value=15)
@@ -221,6 +227,12 @@ class ImageAutomationApp(tk.Tk):
         ttk.Entry(frame, textvariable=self.watermark_opacity_min_var, width=6).grid(row=4, column=4, sticky=tk.W)
         ttk.Entry(frame, textvariable=self.watermark_opacity_max_var, width=6).grid(row=4, column=5, sticky=tk.W)
 
+        ttk.Label(frame, text="水印缩放:").grid(row=5, column=0, sticky=tk.W)
+        self.watermark_scale_min_var = tk.DoubleVar(value=0.02)
+        self.watermark_scale_max_var = tk.DoubleVar(value=0.05)
+        ttk.Entry(frame, textvariable=self.watermark_scale_min_var, width=6).grid(row=5, column=1, sticky=tk.W)
+        ttk.Entry(frame, textvariable=self.watermark_scale_max_var, width=6).grid(row=5, column=2, sticky=tk.W)
+
         ttk.Label(frame, text="进程数:").grid(row=4, column=6, sticky=tk.W)
         self.worker_var = tk.IntVar(value=8)
         ttk.Entry(frame, textvariable=self.worker_var, width=6).grid(row=4, column=7, sticky=tk.W)
@@ -231,11 +243,11 @@ class ImageAutomationApp(tk.Tk):
 
         self.validation_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(frame, text="启用自动验证", variable=self.validation_var).grid(
-            row=5, column=3, sticky=tk.W, padx=(12, 0)
+            row=6, column=3, sticky=tk.W, padx=(12, 0)
         )
 
         ttk.Button(frame, text="启动处理", command=self._start_processing).grid(
-            row=6, column=0, columnspan=3, sticky=tk.W, pady=(12, 0)
+            row=7, column=0, columnspan=3, sticky=tk.W, pady=(12, 0)
         )
 
         frame.columnconfigure(7, weight=1)
@@ -366,7 +378,7 @@ class ImageAutomationApp(tk.Tk):
 
         watermark = WatermarkConfig(
             enabled=self.antidedup_mode_var.get() == "heavy",
-            text=self.watermark_text_var.get(),
+            text=self._resolve_watermark_text(),
             count_range=(
                 min(self.watermark_min_var.get(), self.watermark_max_var.get()),
                 max(self.watermark_min_var.get(), self.watermark_max_var.get()),
@@ -374,6 +386,10 @@ class ImageAutomationApp(tk.Tk):
             opacity_range=(
                 min(self.watermark_opacity_min_var.get(), self.watermark_opacity_max_var.get()),
                 max(self.watermark_opacity_min_var.get(), self.watermark_opacity_max_var.get()),
+            ),
+            scale_range=(
+                min(self.watermark_scale_min_var.get(), self.watermark_scale_max_var.get()),
+                max(self.watermark_scale_min_var.get(), self.watermark_scale_max_var.get()),
             ),
         )
 
@@ -400,6 +416,17 @@ class ImageAutomationApp(tk.Tk):
             max_workers=max(1, self.worker_var.get()),
             random_seed=random_seed,
         )
+
+    def _resolve_watermark_text(self) -> str:
+        text = self.watermark_text_var.get().strip()
+        if self.random_watermark_var.get() and not text:
+            text = self._generate_random_watermark_text()
+            self.watermark_text_var.set(text)
+        return text
+
+    def _generate_random_watermark_text(self) -> str:
+        letters = string.ascii_uppercase
+        return random.choice(letters)
 
     def _run_pipeline_thread(self, job: JobConfig) -> None:
         def progress_callback(update: ProgressUpdate) -> None:
