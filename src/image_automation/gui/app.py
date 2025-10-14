@@ -5,7 +5,8 @@ from __future__ import annotations
 import queue
 import threading
 import tkinter as tk
-from pathlib import Path
+import os
+from pathlib import Path, PureWindowsPath
 from tkinter import filedialog, messagebox, ttk, font as tkfont
 from typing import List, Optional
 
@@ -31,9 +32,11 @@ class ImageAutomationApp(tk.Tk):
         self.geometry("900x600")
         self._configure_fonts()
         setup_logging()
+        self.default_dir = self._determine_default_dir()
+        self.default_dir.mkdir(parents=True, exist_ok=True)
 
         self.sources: List[Path] = []
-        self.output_dir: Optional[Path] = None
+        self.output_dir: Optional[Path] = self.default_dir
         self._worker_thread: Optional[threading.Thread] = None
         self._event_queue: queue.Queue = queue.Queue()
         self._progress_total = 0
@@ -65,6 +68,32 @@ class ImageAutomationApp(tk.Tk):
         # 可以在创建它们时直接指定字体
         self.option_add("*Font", (font_family, font_size))
 
+    def _determine_default_dir(self) -> Path:
+        """根据运行平台计算默认目录。"""
+
+        if os.name == "nt":
+            return Path(r"C:\Users\hewqb\Desktop")
+        return Path("/mnt/c/Users/hewqb/Desktop")
+
+    def _normalize_path(self, raw: str) -> Path:
+        """将任意平台返回的路径字符串规范化为当前系统可用的 Path。"""
+
+        candidate = raw.strip()
+        if not candidate:
+            raise ValueError("路径不能为空")
+
+        if os.name == "nt":
+            return Path(candidate).expanduser().resolve()
+
+        if len(candidate) >= 2 and candidate[1] == ":":
+            win_path = PureWindowsPath(candidate)
+            drive = win_path.drive.rstrip(":").lower()
+            # PureWindowsPath.parts 包含 drive，自第二个元素起为层级路径
+            converted = Path("/mnt", drive, *win_path.parts[1:])
+            return converted.expanduser().resolve()
+
+        return Path(candidate).expanduser().resolve()
+
     # ---------------------- UI 构建 ---------------------- #
 
     def _build_ui(self) -> None:
@@ -94,7 +123,7 @@ class ImageAutomationApp(tk.Tk):
         frame.pack(fill=tk.X, pady=8)
 
         ttk.Label(frame, text="输出目录:").grid(row=0, column=0, sticky=tk.W)
-        self.output_var = tk.StringVar()
+        self.output_var = tk.StringVar(value=str(self.default_dir))
         ttk.Entry(frame, textvariable=self.output_var, width=60).grid(row=0, column=1, sticky=tk.EW, padx=4)
         ttk.Button(frame, text="选择", command=self._select_output).grid(row=0, column=2, padx=4)
 
@@ -142,7 +171,7 @@ class ImageAutomationApp(tk.Tk):
         ttk.Entry(frame, textvariable=self.border_thickness_var, width=6).grid(row=1, column=5, sticky=tk.W)
 
         ttk.Label(frame, text="边框模板:").grid(row=1, column=6, sticky=tk.W)
-        self.border_image_var = tk.StringVar()
+        self.border_image_var = tk.StringVar(value=str(self.default_dir))
         ttk.Entry(frame, textvariable=self.border_image_var, width=18).grid(row=1, column=7, sticky=tk.W)
         ttk.Button(frame, text="选择", command=self._select_border_image).grid(row=1, column=8, padx=4)
 
@@ -218,14 +247,19 @@ class ImageAutomationApp(tk.Tk):
     # ---------------------- 事件处理 ---------------------- #
 
     def _add_source(self) -> None:
-        path = filedialog.askdirectory(title="选择源目录")
+        path = filedialog.askdirectory(title="选择源目录", initialdir=str(self.default_dir))
         if not path:
             return
-        resolved = Path(path).resolve()
+        try:
+            resolved = self._normalize_path(path)
+        except ValueError:
+            return
         if resolved in self.sources:
             return
         self.sources.append(resolved)
         self.source_listbox.insert(tk.END, str(resolved))
+        if resolved.is_dir():
+            self.default_dir = resolved
 
     def _remove_selected_source(self) -> None:
         selection = list(self.source_listbox.curselection())
@@ -235,19 +269,32 @@ class ImageAutomationApp(tk.Tk):
             self.sources.pop(idx)
 
     def _select_output(self) -> None:
-        path = filedialog.askdirectory(title="选择输出目录")
+        path = filedialog.askdirectory(title="选择输出目录", initialdir=str(self.default_dir))
         if not path:
             return
-        resolved = Path(path).resolve()
+        try:
+            resolved = self._normalize_path(path)
+        except ValueError:
+            return
         self.output_dir = resolved
         self.output_var.set(str(resolved))
+        if resolved.is_dir():
+            self.default_dir = resolved
 
     def _select_border_image(self) -> None:
-        filename = filedialog.askopenfilename(title="选择边框 PNG", filetypes=[("PNG 文件", "*.png")])
+        filename = filedialog.askopenfilename(
+            title="选择边框 PNG", filetypes=[("PNG 文件", "*.png")], initialdir=str(self.default_dir)
+        )
         if not filename:
             return
-        resolved = Path(filename).resolve()
+        try:
+            resolved = self._normalize_path(filename)
+        except ValueError:
+            return
         self.border_image_var.set(str(resolved))
+        parent = resolved.parent
+        if parent.exists():
+            self.default_dir = parent
 
     def _start_processing(self) -> None:
         if self._worker_thread and self._worker_thread.is_alive():
@@ -262,7 +309,11 @@ class ImageAutomationApp(tk.Tk):
             messagebox.showwarning("提示", "请先选择输出目录。")
             return
 
-        self.output_dir = Path(self.output_var.get()).expanduser().resolve()
+        try:
+            self.output_dir = self._normalize_path(self.output_var.get())
+        except ValueError as exc:
+            messagebox.showerror("配置错误", str(exc))
+            return
 
         try:
             job = self._build_config()
@@ -285,7 +336,13 @@ class ImageAutomationApp(tk.Tk):
             raise ValueError("比例必须形如 1:1")
         ratio_w, ratio_h = int(ratio_parts[0]), int(ratio_parts[1])
 
-        border_image = Path(self.border_image_var.get()).expanduser().resolve() if self.border_image_var.get() else None
+        border_image = (
+            self._normalize_path(self.border_image_var.get())
+            if self.border_image_var.get().strip()
+            else None
+        )
+        if border_image and not border_image.is_file():
+            border_image = None
 
         styling = StylingConfig(
             aspect_ratio=(ratio_w, ratio_h),
