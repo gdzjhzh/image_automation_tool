@@ -21,6 +21,7 @@ from image_automation.core.config import (
     JobConfig,
     OutputConfig,
     StylingConfig,
+    TextureConfig,
     ValidationConfig,
     WatermarkConfig,
 )
@@ -95,6 +96,8 @@ def run_cli(  # noqa: PLR0913
     watermark_scale: Tuple[float, float] = typer.Option(
         (0.02, 0.05), "--watermark-scale", help="水印缩放范围，默认 0.02 0.05"
     ),
+    texture_image: Optional[Path] = typer.Option(None, "--texture-image", help="纹理叠加图片"),
+    texture_opacity: float = typer.Option(0.1, "--texture-opacity", help="纹理叠加透明度 0.0~1.0"),
     max_workers: int = typer.Option(4, "--workers", "-w", help="并发进程数量"),
     allow_recursive: bool = typer.Option(True, "--recursive/--no-recursive", help="是否递归扫描目录"),
     conflict_strategy: str = typer.Option("rename", "--on-conflict", help="文件名冲突策略"),
@@ -141,6 +144,11 @@ def run_cli(  # noqa: PLR0913
         rotation_range=(rotation_min, rotation_max),
         crop_margin=crop_margin,
         watermark=watermark,
+        texture=TextureConfig(
+            enabled=texture_image is not None,
+            image_path=texture_image.resolve() if texture_image else None,
+            opacity=max(0.0, min(texture_opacity, 1.0)),
+        ),
     )
 
     job = JobConfig(

@@ -7,7 +7,7 @@ import random
 import numpy as np
 from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ImageOps
 
-from image_automation.core.config import AntiDedupConfig, WatermarkConfig
+from image_automation.core.config import AntiDedupConfig, TextureConfig, WatermarkConfig
 
 LOGGER = logging.getLogger(__name__)
 
@@ -18,22 +18,23 @@ def apply_antidedup(image: Image.Image, config: AntiDedupConfig, rng: random.Ran
     """根据配置对图片执行随机扰动与水印，返回处理后的图片与说明。"""
 
     mode = (config.mode or "none").lower()
-    if mode == "none":
-        return image, []
-
     operations: list[str] = []
     working = image
 
-    if config.allow_mirror and rng.random() < MIRROR_PROBABILITY:
-        working = working.transpose(Image.FLIP_LEFT_RIGHT)
-        operations.append("mirror")
+    if mode != "none":
+        if config.allow_mirror and rng.random() < MIRROR_PROBABILITY:
+            working = working.transpose(Image.FLIP_LEFT_RIGHT)
+            operations.append("mirror")
 
-    if mode in {"light", "medium", "heavy"}:
-        working = _apply_color_jitter(working, config, rng, operations)
-        working = _apply_noise(working, config, rng, operations)
+        if mode in {"light", "medium", "heavy"}:
+            working = _apply_color_jitter(working, config, rng, operations)
+            working = _apply_noise(working, config, rng, operations)
 
-    if mode in {"medium", "heavy"}:
-        working = _apply_rotation_crop(working, config, rng, operations)
+        if mode in {"medium", "heavy"}:
+            working = _apply_rotation_crop(working, config, rng, operations)
+
+    if config.texture.enabled:
+        working = _apply_texture(working, config.texture, operations)
 
     if mode == "heavy":
         working = _apply_watermarks(working, config.watermark, rng, operations)
@@ -161,3 +162,29 @@ def _apply_watermarks(
     combined = Image.alpha_composite(base, overlay)
     operations.append(f"watermark(count={count})")
     return combined.convert("RGB")
+
+
+def _apply_texture(image: Image.Image, texture_config: TextureConfig, operations: list[str]) -> Image.Image:
+    """按配置叠加纹理图层。"""
+
+    if not texture_config.image_path:
+        return image
+
+    opacity = max(0.0, min(texture_config.opacity, 1.0))
+    if opacity <= 0:
+        return image
+
+    try:
+        with Image.open(texture_config.image_path) as texture_img:
+            texture = texture_img.convert("RGB")
+    except OSError as exc:
+        LOGGER.warning("无法加载纹理图片 %s: %s", texture_config.image_path, exc)
+        return image
+
+    texture = ImageOps.fit(texture, image.size, Image.LANCZOS)
+    if texture.mode != image.mode:
+        texture = texture.convert(image.mode)
+
+    blended = Image.blend(image, texture, opacity)
+    operations.append(f"texture(opacity={opacity:.3f})")
+    return blended

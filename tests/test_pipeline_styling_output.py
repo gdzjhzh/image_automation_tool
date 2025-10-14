@@ -13,6 +13,7 @@ from image_automation.core.config import (
     JobConfig,
     OutputConfig,
     StylingConfig,
+    TextureConfig,
     ValidationConfig,
 )
 from image_automation.processing.pipeline import process_batch
@@ -25,12 +26,13 @@ def make_config(
     styling: StylingConfig | None = None,
     conflict_strategy: str = "rename",
     enable_validation: bool = False,
+    texture: TextureConfig | None = None,
 ) -> JobConfig:
     return JobConfig(
         sources=[source],
         output=OutputConfig(output_dir=output, conflict_strategy=conflict_strategy),
         styling=styling or StylingConfig(),
-        anti_dedup=AntiDedupConfig(),
+        anti_dedup=AntiDedupConfig(texture=texture or TextureConfig()),
         validation=ValidationConfig(enabled=enable_validation),
         max_workers=1,
     )
@@ -197,6 +199,26 @@ def test_conflict_skip_strategy(tmp_path: Path) -> None:
     skipped_record = result.skipped[0]
     assert skipped_record.status == "skip-existing"
     assert skipped_record.output_path == output / "dup.png"
+
+
+def test_texture_overlay_in_pipeline(tmp_path: Path) -> None:
+    source = tmp_path / "input"
+    output = tmp_path / "output"
+    texture_dir = tmp_path / "assets"
+    source.mkdir()
+    output.mkdir()
+    texture_dir.mkdir()
+
+    Image.new("RGB", (80, 80), "red").save(source / "sample.png")
+    Image.new("RGB", (40, 40), "blue").save(texture_dir / "texture.png")
+
+    texture_cfg = TextureConfig(enabled=True, image_path=texture_dir / "texture.png", opacity=0.4)
+
+    result = process_batch(make_config(source, output, texture=texture_cfg))
+
+    assert len(result.succeeded) == 1
+    note = result.succeeded[0].message
+    assert note is not None and "texture" in note
 
 
 def test_validation_metrics_recorded(tmp_path: Path) -> None:

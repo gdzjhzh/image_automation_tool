@@ -17,6 +17,7 @@ from image_automation.core.config import (
     JobConfig,
     OutputConfig,
     StylingConfig,
+    TextureConfig,
     ValidationConfig,
     WatermarkConfig,
 )
@@ -241,6 +242,17 @@ class ImageAutomationApp(tk.Tk):
         self.seed_var = tk.StringVar()
         ttk.Entry(frame, textvariable=self.seed_var, width=10).grid(row=4, column=9, sticky=tk.W)
 
+        ttk.Label(frame, text="纹理叠加:").grid(row=5, column=3, sticky=tk.W)
+        self.texture_enabled_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(frame, text="启用", variable=self.texture_enabled_var).grid(row=5, column=4, sticky=tk.W)
+        self.texture_path_var = tk.StringVar()
+        ttk.Entry(frame, textvariable=self.texture_path_var, width=18).grid(row=5, column=5, sticky=tk.W)
+        ttk.Button(frame, text="选择", command=self._select_texture_image).grid(row=5, column=6, padx=4)
+        ttk.Button(frame, text="清除", command=self._clear_texture_image).grid(row=5, column=7, padx=4)
+        ttk.Label(frame, text="透明度:").grid(row=5, column=8, sticky=tk.W)
+        self.texture_opacity_var = tk.DoubleVar(value=0.1)
+        ttk.Entry(frame, textvariable=self.texture_opacity_var, width=6).grid(row=5, column=9, sticky=tk.W)
+
         self.validation_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(frame, text="启用自动验证", variable=self.validation_var).grid(
             row=6, column=3, sticky=tk.W, padx=(12, 0)
@@ -318,6 +330,25 @@ class ImageAutomationApp(tk.Tk):
     def _clear_border_image(self) -> None:
         self.border_image_var.set("")
 
+    def _select_texture_image(self) -> None:
+        filename = filedialog.askopenfilename(
+            title="选择纹理图片", filetypes=[("图像文件", "*.png *.jpg *.jpeg")], initialdir=str(self.default_dir)
+        )
+        if not filename:
+            return
+        try:
+            resolved = self._normalize_path(filename)
+        except ValueError:
+            return
+        self.texture_enabled_var.set(True)
+        self.texture_path_var.set(str(resolved))
+        parent = resolved.parent
+        if parent.exists():
+            self.default_dir = parent
+
+    def _clear_texture_image(self) -> None:
+        self.texture_path_var.set("")
+
     def _start_processing(self) -> None:
         if self._worker_thread and self._worker_thread.is_alive():
             messagebox.showinfo("提示", "任务正在执行中，请稍候。")
@@ -393,6 +424,19 @@ class ImageAutomationApp(tk.Tk):
             ),
         )
 
+        texture_path = None
+        texture_value = self.texture_path_var.get().strip()
+        if texture_value:
+            texture_path = self._normalize_path(texture_value)
+            if not texture_path.is_file():
+                raise ValueError("纹理图片文件不存在")
+
+        texture = TextureConfig(
+            enabled=self.texture_enabled_var.get() and texture_path is not None,
+            image_path=texture_path,
+            opacity=self._clamp_opacity(self.texture_opacity_var.get()),
+        )
+
         anti_dedup = AntiDedupConfig(
             mode=self.antidedup_mode_var.get(),
             allow_mirror=self.allow_mirror_var.get(),
@@ -401,6 +445,7 @@ class ImageAutomationApp(tk.Tk):
             rotation_range=(self.rot_min_var.get(), self.rot_max_var.get()),
             crop_margin=self.crop_var.get(),
             watermark=watermark,
+            texture=texture,
         )
 
         seed_value = self.seed_var.get().strip()
@@ -427,6 +472,10 @@ class ImageAutomationApp(tk.Tk):
     def _generate_random_watermark_text(self) -> str:
         letters = string.ascii_uppercase
         return random.choice(letters)
+
+    @staticmethod
+    def _clamp_opacity(value: float) -> float:
+        return max(0.0, min(float(value), 1.0))
 
     def _run_pipeline_thread(self, job: JobConfig) -> None:
         def progress_callback(update: ProgressUpdate) -> None:

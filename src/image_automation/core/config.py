@@ -32,6 +32,7 @@ class AntiDedupConfig:
     rotation_range: Tuple[float, float] = (-0.5, 0.5)
     crop_margin: float = 0.01
     watermark: WatermarkConfig = field(default_factory=lambda: WatermarkConfig(enabled=False))
+    texture: "TextureConfig" = field(default_factory=lambda: TextureConfig(enabled=False))
 
 
 @dataclass(slots=True)
@@ -61,6 +62,15 @@ class ValidationConfig:
     """自动验证相关配置。"""
 
     enabled: bool = False
+
+
+@dataclass(slots=True)
+class TextureConfig:
+    """纹理叠加配置。"""
+
+    enabled: bool = False
+    image_path: Optional[Path] = None
+    opacity: float = 0.1
 
 
 @dataclass(slots=True)

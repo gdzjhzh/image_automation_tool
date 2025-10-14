@@ -7,7 +7,14 @@ from pathlib import Path
 
 from PIL import Image
 
-from image_automation.core.config import AntiDedupConfig, JobConfig, OutputConfig, StylingConfig, WatermarkConfig
+from image_automation.core.config import (
+    AntiDedupConfig,
+    JobConfig,
+    OutputConfig,
+    StylingConfig,
+    TextureConfig,
+    WatermarkConfig,
+)
 from image_automation.processing.antidedup import apply_antidedup
 from image_automation.processing.pipeline import process_batch
 
@@ -104,3 +111,22 @@ def test_pipeline_records_antidedup_notes(tmp_path: Path) -> None:
     assert len(result.succeeded) == 1
     note = result.succeeded[0].message
     assert note is not None and "antidedup" in note
+
+
+def test_texture_overlay_changes_image(tmp_path: Path) -> None:
+    image = _make_image("white")
+    texture = Image.new("RGB", (32, 32), "black")
+    texture_path = tmp_path / "texture.png"
+    texture.save(texture_path)
+
+    config = AntiDedupConfig(
+        mode="light",
+        texture=TextureConfig(enabled=True, image_path=texture_path, opacity=0.5),
+    )
+    rng = random.Random(55)
+
+    processed, operations = apply_antidedup(image, config, rng)
+
+    assert any(op.startswith("texture") for op in operations)
+    assert processed.size == image.size
+    assert list(processed.getdata()) != list(image.getdata())
