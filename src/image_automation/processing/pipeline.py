@@ -71,6 +71,7 @@ def process_batch(config: JobConfig, progress_callback: ProgressCallback = None)
                 styling=config.styling,
                 anti_dedup=config.anti_dedup,
                 random_seed=task_seed,
+                validation=config.validation,
             )
         )
 

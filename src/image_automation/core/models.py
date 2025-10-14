@@ -24,6 +24,8 @@ class FileOutcome:
     status: str
     output_path: Optional[Path] = None
     message: Optional[str] = None
+    phash_distance: Optional[float] = None
+    ssim: Optional[float] = None
 
 
 @dataclass(slots=True)

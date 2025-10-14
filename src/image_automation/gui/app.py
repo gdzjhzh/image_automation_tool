@@ -15,6 +15,7 @@ from image_automation.core.config import (
     JobConfig,
     OutputConfig,
     StylingConfig,
+    ValidationConfig,
     WatermarkConfig,
 )
 from image_automation.core.models import BatchResult
@@ -227,8 +228,13 @@ class ImageAutomationApp(tk.Tk):
         self.seed_var = tk.StringVar()
         ttk.Entry(frame, textvariable=self.seed_var, width=10).grid(row=4, column=9, sticky=tk.W)
 
+        self.validation_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(frame, text="启用自动验证", variable=self.validation_var).grid(
+            row=5, column=3, sticky=tk.W, padx=(12, 0)
+        )
+
         ttk.Button(frame, text="启动处理", command=self._start_processing).grid(
-            row=5, column=0, columnspan=3, sticky=tk.W, pady=(12, 0)
+            row=6, column=0, columnspan=3, sticky=tk.W, pady=(12, 0)
         )
 
         frame.columnconfigure(7, weight=1)
@@ -385,6 +391,7 @@ class ImageAutomationApp(tk.Tk):
             output=OutputConfig(output_dir=self.output_dir, conflict_strategy=self.conflict_var.get()),
             styling=styling,
             anti_dedup=anti_dedup,
+            validation=ValidationConfig(enabled=self.validation_var.get()),
             allow_recursive=self.recursive_var.get(),
             max_workers=max(1, self.worker_var.get()),
             random_seed=random_seed,

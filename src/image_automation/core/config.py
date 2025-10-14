@@ -57,6 +57,13 @@ class OutputConfig:
 
 
 @dataclass(slots=True)
+class ValidationConfig:
+    """自动验证相关配置。"""
+
+    enabled: bool = False
+
+
+@dataclass(slots=True)
 class JobConfig:
     """单次批处理任务的配置集合。"""
 
@@ -64,6 +71,7 @@ class JobConfig:
     output: OutputConfig
     styling: StylingConfig
     anti_dedup: AntiDedupConfig
+    validation: ValidationConfig = field(default_factory=ValidationConfig)
     allow_recursive: bool = True
     include_patterns: Sequence[str] = field(default_factory=lambda: ("*.jpg", "*.jpeg", "*.png"))
     exclude_patterns: Sequence[str] = field(default_factory=tuple)

@@ -21,6 +21,7 @@ from image_automation.core.config import (
     JobConfig,
     OutputConfig,
     StylingConfig,
+    ValidationConfig,
     WatermarkConfig,
 )
 from image_automation.core.progress import ProgressUpdate
@@ -98,6 +99,7 @@ def run_cli(  # noqa: PLR0913
     allow_recursive: bool = typer.Option(True, "--recursive/--no-recursive", help="是否递归扫描目录"),
     conflict_strategy: str = typer.Option("rename", "--on-conflict", help="文件名冲突策略"),
     random_seed: Optional[int] = typer.Option(None, "--seed", help="随机种子，便于结果复现"),
+    auto_validate: bool = typer.Option(False, "--auto-validate", help="处理后立即对比原图计算相似度指标"),
 ) -> None:
     """执行批量处理。"""
 
@@ -146,6 +148,7 @@ def run_cli(  # noqa: PLR0913
         output=OutputConfig(output_dir=output_dir, conflict_strategy=conflict_strategy),
         styling=styling,
         anti_dedup=anti_dedup,
+        validation=ValidationConfig(enabled=auto_validate),
         allow_recursive=allow_recursive,
         max_workers=max_workers,
         random_seed=random_seed,

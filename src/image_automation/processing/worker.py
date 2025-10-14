@@ -9,13 +9,14 @@ from typing import Optional
 
 from PIL import Image
 
-from image_automation.core.config import AntiDedupConfig, StylingConfig
+from image_automation.core.config import AntiDedupConfig, StylingConfig, ValidationConfig
 from image_automation.core.exceptions import InvalidConfigurationError
 from image_automation.core.models import FileOutcome
 from image_automation.core.output_manager import ImageWriteError, save_image_file
 from image_automation.processing.antidedup import apply_antidedup
 from image_automation.processing.image_loader import ImageLoadingError, load_image
 from image_automation.processing.styling import apply_styling
+from image_automation.processing.validation import compute_phash_distance, compute_ssim
 
 
 @dataclass(slots=True)
@@ -29,6 +30,7 @@ class ProcessingTask:
     styling: StylingConfig
     anti_dedup: AntiDedupConfig
     random_seed: int
+    validation: ValidationConfig
 
 
 def run_task(task: ProcessingTask) -> FileOutcome:
@@ -38,6 +40,9 @@ def run_task(task: ProcessingTask) -> FileOutcome:
     image: Optional[Image.Image] = None
     styled_image: Optional[Image.Image] = None
     processed_image: Optional[Image.Image] = None
+    phash_distance: Optional[float] = None
+    ssim_value: Optional[float] = None
+    validation_note: Optional[str] = None
 
     try:
         image = load_image(task.source_path)
@@ -84,7 +89,18 @@ def run_task(task: ProcessingTask) -> FileOutcome:
             message=str(exc),
         )
 
-    note = _compose_note(task.decision_note, operations)
+    if task.validation.enabled:
+        if image is not None and processed_image is not None:
+            try:
+                phash_distance = compute_phash_distance(image, processed_image)
+                ssim_value = compute_ssim(image, processed_image)
+                validation_note = f"validation: phash={phash_distance:.0f}, ssim={ssim_value:.4f}"
+            except Exception as exc:  # noqa: BLE001
+                validation_note = f"validation-error: {exc}"
+        else:
+            validation_note = "validation-skipped: missing image data"
+
+    note = _compose_note(task.decision_note, operations, validation_note)
     _close_if_needed(image, styled_image, processed_image)
 
     return FileOutcome(
@@ -92,15 +108,19 @@ def run_task(task: ProcessingTask) -> FileOutcome:
         status=status,
         output_path=task.dest_path,
         message=note,
+        phash_distance=phash_distance,
+        ssim=ssim_value,
     )
 
 
-def _compose_note(decision_note: Optional[str], operations: list[str]) -> Optional[str]:
+def _compose_note(decision_note: Optional[str], operations: list[str], extra_note: Optional[str] = None) -> Optional[str]:
     parts: list[str] = []
     if decision_note:
         parts.append(decision_note)
     if operations:
         parts.append("antidedup: " + ", ".join(operations))
+    if extra_note:
+        parts.append(extra_note)
     if not parts:
         return None
     return "; ".join(parts)

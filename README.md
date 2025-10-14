@@ -10,6 +10,7 @@
 - **防重复检测**：内置多档随机扰动（噪点、色彩抖动、旋转裁剪、镜像、水印），改变文件/感知哈希。
 - **批量高效**：多进程并发执行，上千张图片亦可快速处理。
 - **鲁棒可靠**：自动跳过非图片或损坏文件，记录在报告中，任务不中断。
+- **自动验证（可选）**：支持处理后立即计算 pHash 与 SSIM，用于评估原图与导出图的差异度。
 - **人性化体验**：CLI 适合自动化脚本，GUI 满足运营同学的图形化操作习惯。
 
 ---
@@ -60,7 +61,8 @@ python -m image_automation.cli.main run \
     --watermark-text "brand" \
     --on-conflict rename \
     --workers 4 \
-    --seed 1234
+    --seed 1234 \
+    --auto-validate
 ```
 
 访问 `python -m image_automation.cli.main run --help` 查看全部参数。
@@ -72,6 +74,7 @@ python -m image_automation.gui.app
 ```
 
 在 GUI 中选择源目录/输出目录，配置参数（见下文“GUI 参数说明”），点击「启动处理」即可。支持实时进度条、日志输出以及完成后的统计信息。
+如需生成验证数据，可勾选「启用自动验证」复选框。
 
 ---
 
@@ -87,6 +90,7 @@ python -m image_automation.gui.app
    - 写入输出文件，失败时返回结构化错误信息。
 5. **进度回调**：主进程捕获 `ProgressUpdate`，用于 CLI 的 Rich 进度条或 GUI 的进度条与日志。
 6. **结果汇总**：输出 `BatchResult`，同时在目标目录生成 `report.csv`（记录源路径、输出路径、状态、备注）。
+   若启用自动验证，还会额外写入 `phash_distance` 与 `ssim` 指标。
 
 ---
 
@@ -105,6 +109,9 @@ python -m image_automation.gui.app
   - `rename`：若输出目录已有同名文件，自动重命名（如 `image.png` → `image_1.png`）。
   - `overwrite`：覆盖已有文件。
   - `skip`：跳过该文件并在报告中提示“已存在，已跳过”。
+- **自动验证 (`--auto-validate` / GUI 复选框)**
+  - 开启后，每张图片写入完成即计算感知哈希距离与结构相似度，并记录在报告中。
+  - 验证会增加少量 CPU 开销，建议在需要对比质量或排查异常时启用。
 
 - **随机种子**  
   留空表示每次运行产生不同的随机扰动；填入任意整数（建议 0～4294967295）则可复现同一批输出，便于排查与回归。
@@ -120,7 +127,9 @@ python -m image_automation.gui.app
   - `source_path`
   - `output_path`
   - `status`（如 `processed`、`processed-rename`、`skip-existing`、`error-load` 等）
-  - `message`（包含冲突说明、防检测操作摘要）
+  - `message`（包含冲突说明、防检测操作摘要以及验证结果）
+  - `phash_distance`（当启用自动验证时，记录感知哈希差异；关闭时为空）
+  - `ssim`（当启用自动验证时，记录结构相似度；关闭时为空）
 - CLI 使用标准日志输出，GUI 在界面下方显示日志；所有错误/跳过信息均保留在报告中，方便后续排查。
 
 ---

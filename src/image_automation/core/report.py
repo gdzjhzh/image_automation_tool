@@ -8,7 +8,7 @@ from typing import Iterable
 
 from image_automation.core.models import FileOutcome
 
-HEADER = ["source_path", "output_path", "status", "message"]
+HEADER = ["source_path", "output_path", "status", "message", "phash_distance", "ssim"]
 
 
 def write_csv_report(outcomes: Iterable[FileOutcome], output_dir: Path, filename: str) -> Path:
@@ -25,6 +25,20 @@ def write_csv_report(outcomes: Iterable[FileOutcome], output_dir: Path, filename
                     str(record.output_path) if record.output_path else "",
                     record.status,
                     record.message or "",
+                    _format_phash(record.phash_distance),
+                    _format_ssim(record.ssim),
                 ]
             )
     return report_path
+
+
+def _format_phash(value: float | None) -> str:
+    if value is None:
+        return ""
+    return str(int(round(value)))
+
+
+def _format_ssim(value: float | None) -> str:
+    if value is None:
+        return ""
+    return f"{value:.6f}"

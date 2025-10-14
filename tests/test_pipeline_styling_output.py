@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from image_automation.core.config import (
     JobConfig,
     OutputConfig,
     StylingConfig,
+    ValidationConfig,
 )
 from image_automation.processing.pipeline import process_batch
 
@@ -22,12 +24,14 @@ def make_config(
     *,
     styling: StylingConfig | None = None,
     conflict_strategy: str = "rename",
+    enable_validation: bool = False,
 ) -> JobConfig:
     return JobConfig(
         sources=[source],
         output=OutputConfig(output_dir=output, conflict_strategy=conflict_strategy),
         styling=styling or StylingConfig(),
         anti_dedup=AntiDedupConfig(),
+        validation=ValidationConfig(enabled=enable_validation),
         max_workers=1,
     )
 
@@ -193,3 +197,31 @@ def test_conflict_skip_strategy(tmp_path: Path) -> None:
     skipped_record = result.skipped[0]
     assert skipped_record.status == "skip-existing"
     assert skipped_record.output_path == output / "dup.png"
+
+
+def test_validation_metrics_recorded(tmp_path: Path) -> None:
+    source = tmp_path / "input"
+    output = tmp_path / "output"
+    source.mkdir()
+    output.mkdir()
+
+    Image.new("RGB", (120, 120), "red").save(source / "sample.png")
+
+    result = process_batch(make_config(source, output, enable_validation=True))
+
+    assert len(result.succeeded) == 1
+    record = result.succeeded[0]
+    assert record.phash_distance is not None
+    assert 0 <= record.phash_distance <= 64
+    assert record.ssim is not None
+    assert -1.0 <= record.ssim <= 1.0
+    assert record.message is not None and "validation" in record.message
+
+    report_path = output / "report.csv"
+    with report_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        row = next(reader)
+        assert "phash_distance" in row
+        assert "ssim" in row
+        assert row["phash_distance"]
+        assert row["ssim"]
