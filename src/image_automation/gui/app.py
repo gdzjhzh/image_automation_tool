@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import queue
 import random
 import string
 import threading
 import tkinter as tk
+from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 from tkinter import filedialog, messagebox, ttk, font as tkfont
-from typing import List, Optional
+from typing import Callable, Dict, List, Optional
 
 from image_automation.core.config import (
     AntiDedupConfig,
@@ -24,7 +26,221 @@ from image_automation.core.config import (
 from image_automation.core.models import BatchResult
 from image_automation.core.progress import ProgressUpdate
 from image_automation.processing.pipeline import process_batch
+from image_automation.processing.ensure_main_image import ensure_main_image_size
 from image_automation.utils.logging import setup_logging
+
+
+class TextWidgetHandler(logging.Handler):
+    """Logging handler that writes records into a Tk Text widget."""
+
+    def __init__(self, widget: tk.Text) -> None:
+        super().__init__()
+        self._widget = widget
+
+    def emit(self, record: logging.LogRecord) -> None:  # noqa: D401 - standard logging handler signature
+        message = self.format(record)
+        # Schedule UI update on main thread
+        self._widget.after(0, self._write, message)
+
+    def _write(self, message: str) -> None:
+        if not self._widget.winfo_exists():
+            return
+        self._widget.configure(state=tk.NORMAL)
+        self._widget.insert(tk.END, message + "\n")
+        self._widget.configure(state=tk.DISABLED)
+        self._widget.see(tk.END)
+
+
+class AuxToolWindow(tk.Toplevel):
+    """Base window for auxiliary tools."""
+
+    def __init__(self, parent: "ImageAutomationApp", *, tool_id: str, title: str) -> None:
+        super().__init__(parent)
+        self._parent_app = parent
+        self._tool_id = tool_id
+        self.title(title)
+        self.transient(parent)
+        self.resizable(False, False)
+        self.protocol("WM_DELETE_WINDOW", self._handle_close)
+
+    def _handle_close(self) -> None:
+        if not self.can_close():
+            return
+        try:
+            self._cleanup()
+        finally:
+            self._parent_app._handle_tool_window_closed(self._tool_id)
+            self.destroy()
+
+    def can_close(self) -> bool:
+        """Return False to keep the window open (e.g. task running)."""
+
+        return True
+
+    def _cleanup(self) -> None:
+        """Allow subclasses to release resources before closing."""
+
+        return
+
+
+@dataclass(frozen=True)
+class AuxToolDescriptor:
+    """Descriptor of an auxiliary tool for dynamic registration."""
+
+    tool_id: str
+    label: str
+    description: str
+    factory: Callable[["ImageAutomationApp"], AuxToolWindow]
+
+
+class MainImageToolWindow(AuxToolWindow):
+    """Window dedicated to enforcing 主图01.jpg constraints."""
+
+    def __init__(self, parent: "ImageAutomationApp") -> None:
+        super().__init__(parent, tool_id="main_image_adjust", title="主图尺寸修正")
+        self._parent_app = parent
+        self._worker_thread: Optional[threading.Thread] = None
+        self._task_running = False
+
+        self.directory_var = tk.StringVar(value=str(parent.default_dir))
+        self.status_var = tk.StringVar(value="待命")
+
+        self._build_widgets()
+
+        self._logger = logging.getLogger(f"image_automation.gui.main_image_tool.{id(self)}")
+        self._logger.setLevel(logging.INFO)
+        self._logger.propagate = False
+        self._log_handler = TextWidgetHandler(self.log_text)
+        formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
+        self._log_handler.setFormatter(formatter)
+        self._logger.addHandler(self._log_handler)
+
+    def _build_widgets(self) -> None:
+        container = ttk.Frame(self, padding=12)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            container,
+            text="遍历所选目录的子文件夹，检查并修正每个“主图01.jpg”为 800x800。",
+        ).pack(anchor=tk.W)
+
+        path_frame = ttk.Frame(container)
+        path_frame.pack(fill=tk.X, pady=(8, 4))
+
+        ttk.Label(path_frame, text="主目录:").pack(side=tk.LEFT)
+        ttk.Entry(path_frame, textvariable=self.directory_var, width=50).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 4))
+        self.select_button = ttk.Button(path_frame, text="选择目录", command=self._select_directory)
+        self.select_button.pack(side=tk.LEFT)
+
+        status_frame = ttk.Frame(container)
+        status_frame.pack(fill=tk.X, pady=(4, 8))
+        ttk.Label(status_frame, text="状态:").pack(side=tk.LEFT)
+        ttk.Label(status_frame, textvariable=self.status_var).pack(side=tk.LEFT, padx=(4, 0))
+
+        button_frame = ttk.Frame(container)
+        button_frame.pack(fill=tk.X, pady=(0, 8))
+        self.run_button = ttk.Button(button_frame, text="开始执行", command=self._start_processing)
+        self.run_button.pack(side=tk.LEFT)
+        ttk.Button(button_frame, text="清空日志", command=self._clear_logs).pack(side=tk.LEFT, padx=(8, 0))
+
+        log_frame = ttk.LabelFrame(container, text="日志", padding=6)
+        log_frame.pack(fill=tk.BOTH, expand=True)
+        self.log_text = tk.Text(log_frame, height=14, state=tk.DISABLED)
+        self.log_text.pack(fill=tk.BOTH, expand=True)
+
+    def _select_directory(self) -> None:
+        path = filedialog.askdirectory(title="选择主目录", initialdir=self.directory_var.get() or str(self._parent_app.default_dir))
+        if not path:
+            return
+        try:
+            resolved = self._parent_app._normalize_path(path)
+        except ValueError as exc:
+            messagebox.showerror("路径错误", str(exc))
+            return
+        self.directory_var.set(str(resolved))
+        if resolved.is_dir():
+            self._parent_app.default_dir = resolved
+
+    def _clear_logs(self) -> None:
+        self.log_text.configure(state=tk.NORMAL)
+        self.log_text.delete("1.0", tk.END)
+        self.log_text.configure(state=tk.DISABLED)
+
+    def _start_processing(self) -> None:
+        if self._task_running:
+            messagebox.showinfo("提示", "任务正在执行中，请稍候。")
+            return
+
+        directory_value = self.directory_var.get().strip()
+        if not directory_value:
+            messagebox.showwarning("提示", "请先选择主目录。")
+            return
+
+        try:
+            directory = self._parent_app._normalize_path(directory_value)
+        except ValueError as exc:
+            messagebox.showerror("路径错误", str(exc))
+            return
+
+        if not directory.exists() or not directory.is_dir():
+            messagebox.showerror("路径错误", "所选路径不存在或不是文件夹。")
+            return
+
+        self._set_running(True)
+        self._logger.info("开始处理目录: %s", directory)
+
+        self._worker_thread = threading.Thread(
+            target=self._run_task,
+            args=(directory,),
+            daemon=True,
+        )
+        self._worker_thread.start()
+
+    def _run_task(self, directory: Path) -> None:
+        try:
+            stats = ensure_main_image_size(directory, logger=self._logger)
+            summary = (
+                f"完成: 共{stats.total_folders}个子目录，检查{stats.inspected_files}张，"
+                f"调整{stats.adjusted_files}张，缺失{stats.missing_files}张，异常{stats.errors}个。"
+            )
+            self._logger.info(summary)
+            self.after(0, self._notify_success, summary)
+        except Exception as exc:  # noqa: BLE001
+            self._logger.error("执行过程中发生异常: %s", exc, exc_info=exc)
+            self.after(0, self._notify_failure, str(exc))
+
+    def _notify_success(self, summary: str) -> None:
+        self._set_running(False)
+        self._worker_thread = None
+        self.status_var.set("完成")
+        messagebox.showinfo("完成", summary, parent=self)
+
+    def _notify_failure(self, reason: str) -> None:
+        self._set_running(False)
+        self._worker_thread = None
+        self.status_var.set("失败")
+        messagebox.showerror("错误", f"任务执行失败: {reason}", parent=self)
+
+    def _set_running(self, running: bool) -> None:
+        self._task_running = running
+        state = tk.DISABLED if running else tk.NORMAL
+        self.run_button.configure(state=state)
+        self.select_button.configure(state=state)
+        self.status_var.set("处理中..." if running else "待命")
+
+    def can_close(self) -> bool:
+        if self._task_running:
+            messagebox.showwarning("提示", "任务执行中，请稍候完成后再关闭。", parent=self)
+            return False
+        return True
+
+    def _cleanup(self) -> None:
+        if self._worker_thread and self._worker_thread.is_alive():
+            # Should not happen because can_close prevents it, but guard anyway.
+            return
+        self._worker_thread = None
+        self._logger.removeHandler(self._log_handler)
+        self._log_handler.close()
 
 
 class ImageAutomationApp(tk.Tk):
@@ -44,6 +260,12 @@ class ImageAutomationApp(tk.Tk):
         self._worker_thread: Optional[threading.Thread] = None
         self._event_queue: queue.Queue = queue.Queue()
         self._progress_total = 0
+        self._auxiliary_tools: Dict[str, AuxToolDescriptor] = {}
+        self._aux_tool_order: List[str] = []
+        self._aux_tool_label_map: Dict[str, str] = {}
+        self._aux_tool_selector_var: Optional[tk.StringVar] = None
+        self._open_tool_windows: Dict[str, AuxToolWindow] = {}
+        self._register_auxiliary_tools()
 
         self._build_ui()
         self.after(200, self._poll_queue)
@@ -98,6 +320,54 @@ class ImageAutomationApp(tk.Tk):
 
         return Path(candidate).expanduser().resolve()
 
+    # ---------------------- 辅助工具管理 ---------------------- #
+
+    def _register_auxiliary_tools(self) -> None:
+        self._auxiliary_tools.clear()
+        self._aux_tool_order.clear()
+        self._aux_tool_label_map.clear()
+        self._open_tool_windows.clear()
+        self._add_aux_tool(
+            AuxToolDescriptor(
+                tool_id="main_image_adjust",
+                label="主图尺寸修正",
+                description="检查并放大每个子目录的“主图01.jpg”为 800x800。",
+                factory=lambda app: MainImageToolWindow(app),
+            )
+        )
+
+    def _add_aux_tool(self, descriptor: AuxToolDescriptor) -> None:
+        self._auxiliary_tools[descriptor.tool_id] = descriptor
+        self._aux_tool_order.append(descriptor.tool_id)
+
+    def _handle_tool_window_closed(self, tool_id: str) -> None:
+        self._open_tool_windows.pop(tool_id, None)
+
+    def _open_tool_window(self, tool_id: str) -> None:
+        if tool_id in self._open_tool_windows:
+            window = self._open_tool_windows[tool_id]
+            if window.winfo_exists():
+                window.deiconify()
+                window.lift()
+                window.focus_force()
+            else:
+                self._open_tool_windows.pop(tool_id, None)
+            return
+
+        descriptor = self._auxiliary_tools.get(tool_id)
+        if descriptor is None:
+            return
+        window = descriptor.factory(self)
+        self._open_tool_windows[tool_id] = window
+
+    def _open_selected_tool(self) -> None:
+        if not self._aux_tool_selector_var:
+            return
+        label = self._aux_tool_selector_var.get()
+        tool_id = self._aux_tool_label_map.get(label)
+        if tool_id:
+            self._open_tool_window(tool_id)
+
     # ---------------------- UI 构建 ---------------------- #
 
     def _build_ui(self) -> None:
@@ -107,6 +377,7 @@ class ImageAutomationApp(tk.Tk):
         self._build_source_section(container)
         self._build_output_section(container)
         self._build_options_section(container)
+        self._build_aux_tools_section(container)
         self._build_progress_section(container)
 
     def _build_source_section(self, parent: tk.Widget) -> None:
@@ -263,6 +534,37 @@ class ImageAutomationApp(tk.Tk):
         )
 
         frame.columnconfigure(7, weight=1)
+
+    def _build_aux_tools_section(self, parent: tk.Widget) -> None:
+        if not self._aux_tool_order:
+            return
+
+        frame = ttk.LabelFrame(parent, text="辅助工具", padding=8)
+        frame.pack(fill=tk.X, expand=False, pady=8)
+
+        self._aux_tool_label_map = {self._auxiliary_tools[tid].label: tid for tid in self._aux_tool_order}
+
+        if len(self._aux_tool_order) == 1:
+            descriptor = self._auxiliary_tools[self._aux_tool_order[0]]
+            self._aux_tool_selector_var = None
+            ttk.Button(
+                frame,
+                text=f"{descriptor.label}...",
+                command=lambda: self._open_tool_window(descriptor.tool_id),
+            ).pack(side=tk.LEFT)
+        else:
+            ttk.Label(frame, text="选择工具:").pack(side=tk.LEFT)
+            labels = list(self._aux_tool_label_map.keys())
+            self._aux_tool_selector_var = tk.StringVar(value=labels[0])
+            selector = ttk.Combobox(
+                frame,
+                textvariable=self._aux_tool_selector_var,
+                state="readonly",
+                values=labels,
+                width=24,
+            )
+            selector.pack(side=tk.LEFT, padx=(4, 4))
+            ttk.Button(frame, text="打开", command=self._open_selected_tool).pack(side=tk.LEFT)
 
     def _build_progress_section(self, parent: tk.Widget) -> None:
         frame = ttk.LabelFrame(parent, text="执行进度", padding=8)
