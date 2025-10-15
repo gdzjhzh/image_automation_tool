@@ -104,6 +104,8 @@ class MainImageToolWindow(AuxToolWindow):
 
         self.directory_var = tk.StringVar(value=str(parent.default_dir))
         self.status_var = tk.StringVar(value="待命")
+        self.forbidden_terms_var = tk.StringVar(value="咸鱼,闲鱼,免责声明,价格说明")
+        self.enable_forbidden_scan_var = tk.BooleanVar(value=False)
 
         self._build_widgets()
 
@@ -131,6 +133,12 @@ class MainImageToolWindow(AuxToolWindow):
         ttk.Entry(path_frame, textvariable=self.directory_var, width=50).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 4))
         self.select_button = ttk.Button(path_frame, text="选择目录", command=self._select_directory)
         self.select_button.pack(side=tk.LEFT)
+
+        terms_frame = ttk.Frame(container)
+        terms_frame.pack(fill=tk.X, pady=(0, 8))
+        ttk.Checkbutton(terms_frame, text="启用敏感词删除", variable=self.enable_forbidden_scan_var).pack(side=tk.LEFT)
+        ttk.Label(terms_frame, text="敏感词(逗号分隔):").pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Entry(terms_frame, textvariable=self.forbidden_terms_var, width=40).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 4))
 
         status_frame = ttk.Frame(container)
         status_frame.pack(fill=tk.X, pady=(4, 8))
@@ -161,6 +169,13 @@ class MainImageToolWindow(AuxToolWindow):
         if resolved.is_dir():
             self._parent_app.default_dir = resolved
 
+    def _parse_forbidden_terms(self) -> list[str]:
+        raw = self.forbidden_terms_var.get().strip()
+        if not raw:
+            return []
+        normalized = raw.replace("，", ",")
+        return [item.strip() for item in normalized.split(",") if item.strip()]
+
     def _clear_logs(self) -> None:
         self.log_text.configure(state=tk.NORMAL)
         self.log_text.delete("1.0", tk.END)
@@ -188,20 +203,33 @@ class MainImageToolWindow(AuxToolWindow):
 
         self._set_running(True)
         self._logger.info("开始处理目录: %s", directory)
+        forbidden_terms = self._parse_forbidden_terms()
+        forbidden_enabled = self.enable_forbidden_scan_var.get() and bool(forbidden_terms)
+        if forbidden_enabled:
+            self._logger.info("敏感词列表: %s", ", ".join(forbidden_terms))
+        elif self.enable_forbidden_scan_var.get():
+            self._logger.info("敏感词检测已开启但未填写列表，跳过删除。")
+        else:
+            self._logger.info("敏感词检测已关闭，将仅执行尺寸检查。")
 
         self._worker_thread = threading.Thread(
             target=self._run_task,
-            args=(directory,),
+            args=(directory, forbidden_terms if forbidden_enabled else []),
             daemon=True,
         )
         self._worker_thread.start()
 
-    def _run_task(self, directory: Path) -> None:
+    def _run_task(self, directory: Path, forbidden_terms: list[str]) -> None:
         try:
-            stats = ensure_main_image_size(directory, logger=self._logger)
+            stats = ensure_main_image_size(
+                directory,
+                logger=self._logger,
+                forbidden_terms=forbidden_terms or None,
+            )
             summary = (
                 f"完成: 共{stats.total_folders}个子目录，检查{stats.inspected_files}张，"
-                f"调整{stats.adjusted_files}张，缺失{stats.missing_files}张，异常{stats.errors}个。"
+                f"调整{stats.adjusted_files}张，删除{stats.deleted_files}张，"
+                f"缺失{stats.missing_files}张，异常{stats.errors}个。"
             )
             self._logger.info(summary)
             self.after(0, self._notify_success, summary)
